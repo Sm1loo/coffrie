@@ -802,6 +802,11 @@ button {
   font-size: 13px;
 }
 
+.pick-row.create {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .pick-row.selected {
   color: var(--accent);
   font-weight: 600;

@@ -115,7 +115,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && sheets.length > 0) sheets[sheets.length - 1].close();
 });
 
-export function pick({ title, options, selected, searchable = options.length > 7 }) {
+export function pick({ title, options, selected, searchable = options.length > 7, create = null }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (value) => {
@@ -131,9 +131,28 @@ export function pick({ title, options, selected, searchable = options.length > 7
         const draw = (query) => {
           const needle = query.trim().toLowerCase();
           const rows = options.filter((option) => !needle || option.label.toLowerCase().includes(needle));
+          const typed = query.trim();
+          const createRow = create
+            ? h(
+                'button',
+                {
+                  class: 'pick-row create',
+                  type: 'button',
+                  onClick: () => {
+                    finish({ create: true, name: typed });
+                    sheet.close();
+                  },
+                },
+                icon('plus', 18),
+                h('span', { class: 'pick-label' }, typed ? `Создать «${typed}»` : create),
+              )
+            : null;
           list.replaceChildren(
+            ...(createRow ? [createRow] : []),
             ...(rows.length === 0
-              ? [h('div', { class: 'empty' }, 'Ничего не найдено')]
+              ? create
+                ? []
+                : [h('div', { class: 'empty' }, 'Ничего не найдено')]
               : rows.map((option) =>
                   h(
                     'button',
@@ -157,6 +176,41 @@ export function pick({ title, options, selected, searchable = options.length > 7
           ? h('label', { class: 'search' }, icon('search', 18), h('input', { type: 'search', placeholder: 'Поиск', autocomplete: 'off', onInput: (event) => draw(event.target.value) }))
           : null;
         return h('div', { class: 'pick' }, search, list);
+      },
+    });
+  });
+}
+
+export function askName({ title, placeholder = '', okLabel = 'Создать' }) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      resolve(value);
+    };
+    openSheet({
+      title,
+      onClose: () => finish(undefined),
+      build(sheet) {
+        const input = h('input', { type: 'text', maxlength: '100', autocomplete: 'off', placeholder });
+        setTimeout(() => input.focus(), 50);
+        return h(
+          'form',
+          {
+            class: 'tx-form',
+            novalidate: true,
+            onSubmit: (event) => {
+              event.preventDefault();
+              const text = input.value.trim();
+              if (!text) return;
+              finish(text);
+              sheet.close();
+            },
+          },
+          h('label', { class: 'input-row' }, h('span', { class: 'field-label' }, 'Название'), input),
+          h('div', { class: 'actions' }, h('button', { class: 'button', type: 'button', onClick: () => sheet.close() }, 'Отмена'), h('button', { class: 'button primary', type: 'submit' }, okLabel)),
+        );
       },
     });
   });
