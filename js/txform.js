@@ -1,7 +1,7 @@
 import { today } from './dates.js';
 import { formatMoney, formatPlain, parseMoney } from './money.js';
 import { getMeta, setMeta } from './storage.js';
-import { confirmDialog, h, icon, messageFor, openSheet, pick, segmented, toast } from './ui.js';
+import { confirmDialog, fieldButton, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
 import { openAccountForm } from './settings.js';
 import { parseSms } from './sms.js';
 
@@ -27,18 +27,11 @@ export function openFromSms(ctx, text) {
     return false;
   }
   const account = parsed.card ? ctx.ledger.state.accounts.find((item) => !item.archived && item.name.includes(parsed.card)) : null;
-  openTxForm(ctx, { preset: { kind: parsed.kind, amount: parsed.amount, note: parsed.note, accountId: account?.id } });
+  const personCategory = parsed.transfer
+    ? ctx.ledger.state.categories.find((item) => item.kind === parsed.kind && item.name === (parsed.kind === 'income' ? 'Переводы от людей' : 'Переводы людям'))
+    : null;
+  openTxForm(ctx, { preset: { kind: parsed.kind, amount: parsed.amount, note: parsed.note, accountId: account?.id, categoryId: personCategory?.id } });
   return true;
-}
-
-function fieldButton(label, value, onClick) {
-  return h(
-    'button',
-    { class: 'field', type: 'button', onClick },
-    h('span', { class: 'field-label' }, label),
-    h('span', { class: 'field-value' }, value),
-    icon('down', 18),
-  );
 }
 
 export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
@@ -260,6 +253,9 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
             },
           }),
         ),
+        form.kind === 'transfer'
+          ? h('p', { class: 'muted hint' }, 'Перевод между вашими счетами не считается ни доходом, ни расходом. Если деньги ушли другому человеку или пришли от него, выберите «Расход» или «Доход» и категорию «Переводы людям» или «Переводы от людей».')
+          : null,
         errorBox,
         h(
           'div',

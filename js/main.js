@@ -1,9 +1,10 @@
-import { monthOf, today } from './dates.js';
+import { currentMonth, monthRange } from './dates.js';
 import { Ledger, createDefaultState, validateState } from './ledger.js';
 import { parseMoney } from './money.js';
-import { budgetsScreen, homeScreen, operationsScreen, reportsScreen } from './screens.js';
+import { reportsScreen } from './reports.js';
+import { budgetsScreen, homeScreen, operationsScreen } from './screens.js';
 import { settingsScreen } from './settings.js';
-import { loadStored, peekRev, requestPersistence, saveEnvelope, saveRaw } from './storage.js';
+import { getMeta, loadStored, peekRev, requestPersistence, saveEnvelope, saveRaw, setMeta } from './storage.js';
 import { openFromSms, openTxForm } from './txform.js';
 import { h, icon, toast } from './ui.js';
 
@@ -11,6 +12,22 @@ const TITLES = { home: 'Coffrie', ops: 'Операции', budgets: 'Бюдже�
 const SCREENS = { home: homeScreen, ops: operationsScreen, budgets: budgetsScreen, reports: reportsScreen, settings: settingsScreen };
 
 const app = document.getElementById('app');
+
+const THEMES = ['auto', 'light', 'dark'];
+const THEME_NAMES = { auto: 'как в системе', light: 'светлая', dark: 'тёмная' };
+const THEME_ICONS = { auto: 'auto', light: 'sun', dark: 'moon' };
+
+function currentTheme() {
+  const saved = getMeta('theme');
+  return THEMES.includes(saved) ? saved : 'auto';
+}
+
+function applyTheme(theme) {
+  if (theme === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+}
+
+applyTheme(currentTheme());
 
 function downloadJson(name, value) {
   const file = new File([JSON.stringify(value, null, 2)], name, { type: 'application/json' });
@@ -155,7 +172,7 @@ function start(state, initialRev, persist) {
 
   const ui = {
     tab: 'home',
-    month: monthOf(today()),
+    month: currentMonth(),
     opsKind: '',
     opsAccount: 0,
     opsAll: false,
@@ -164,6 +181,8 @@ function start(state, initialRev, persist) {
     settingsKind: 'expense',
     reportPeriod: 'month',
     reportCurrency: null,
+    reportCustomSet: false,
+    reportCustom: { mode: 'dates', from: monthRange(currentMonth())[0], to: monthRange(currentMonth())[1], fromMonth: currentMonth(), toMonth: currentMonth() },
   };
 
   const ctx = {
@@ -204,7 +223,24 @@ function start(state, initialRev, persist) {
         ? h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Назад', onClick: () => ctx.go('home') }, icon('left'))
         : null,
       h('h1', {}, TITLES[ui.tab]),
-      ui.tab === 'settings' ? null : h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Настройки', onClick: () => ctx.go('settings') }, icon('gear')),
+      h(
+        'button',
+        {
+          class: 'icon-button',
+          type: 'button',
+          'aria-label': `Тема: ${THEME_NAMES[currentTheme()]}`,
+          title: `Тема: ${THEME_NAMES[currentTheme()]}`,
+          onClick: () => {
+            const next = THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length];
+            setMeta('theme', next);
+            applyTheme(next);
+            toast(`Тема: ${THEME_NAMES[next]}`);
+            render();
+          },
+        },
+        icon(THEME_ICONS[currentTheme()]),
+      ),
+      ui.tab === 'settings' ? null : h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Настройки', title: 'Настройки', onClick: () => ctx.go('settings') }, icon('gear')),
     );
     const tabbar = h(
       'nav',

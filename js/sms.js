@@ -23,5 +23,5 @@ export function parseSms(text) {
 
   const note = head.slice(found.index + found[0].length).replace(/^[\s.,;:-]+/, '').trim();
   const card = head.match(CARD);
-  return { kind, amount, note, card: card ? card[1] : null };
+  return { kind, amount, note, card: card ? card[1] : null, transfer: lower.includes('перевод') };
 }

@@ -8,8 +8,8 @@ export class LedgerError extends Error {
 }
 
 export const DEFAULT_CATEGORIES = {
-  expense: ['Продукты', 'Кафе и рестораны', 'Транспорт', 'Жильё и коммунальные', 'Связь и интернет', 'Здоровье', 'Одежда', 'Развлечения', 'Подарки', 'Прочее'],
-  income: ['Зарплата', 'Подработка', 'Проценты', 'Подарки', 'Прочее'],
+  expense: ['Продукты', 'Кафе и рестораны', 'Транспорт', 'Жильё и коммунальные', 'Связь и интернет', 'Здоровье', 'Одежда', 'Развлечения', 'Подарки', 'Переводы людям', 'Прочее'],
+  income: ['Зарплата', 'Подработка', 'Проценты', 'Подарки', 'Переводы от людей', 'Прочее'],
 };
 
 const KINDS = ['income', 'expense', 'transfer'];
@@ -317,6 +317,9 @@ export class Ledger {
       .filter((tx) => !filter.to || tx.occurredOn <= filter.to)
       .filter((tx) => !filter.accountId || tx.accountId === filter.accountId || tx.toAccountId === filter.accountId)
       .filter((tx) => !filter.categoryId || tx.categoryId === filter.categoryId)
+      .filter((tx) => !filter.noCategory || (tx.categoryId === null && tx.kind !== 'transfer'))
+      .filter((tx) => !filter.noTransfers || tx.kind !== 'transfer')
+      .filter((tx) => !filter.currency || this.account(tx.accountId).currency === filter.currency)
       .filter((tx) => !filter.kind || tx.kind === filter.kind)
       .filter((tx) => !query || tx.note.toLowerCase().includes(query))
       .sort((a, b) => (a.occurredOn === b.occurredOn ? b.id - a.id : a.occurredOn < b.occurredOn ? 1 : -1));

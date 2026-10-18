@@ -9,6 +9,15 @@ export function monthOf(date) {
   return date.slice(0, 7);
 }
 
+export function currentMonth() {
+  return monthOf(today());
+}
+
+export function formatDate(date) {
+  const [year, month, day] = date.split('-');
+  return `${day}.${month}.${year}`;
+}
+
 export function monthRange(month) {
   const [year, number] = month.split('-').map(Number);
   const last = new Date(year, number, 0).getDate();

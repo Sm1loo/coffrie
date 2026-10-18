@@ -17,7 +17,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #14110e;
     --surface: #211c17;
     --text: #f3ede5;
@@ -32,6 +32,26 @@
     --shadow: none;
     color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #14110e;
+  --surface: #211c17;
+  --text: #f3ede5;
+  --muted: #a39a8f;
+  --accent: #e48a4f;
+  --accent-text: #1a1209;
+  --accent-soft: #3b2a1e;
+  --income: #5cc28b;
+  --expense: #f0806f;
+  --warn: #e0ad3d;
+  --border: #342d26;
+  --shadow: none;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -169,6 +189,43 @@ button {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.stat.tile {
+  padding: 6px 8px;
+  margin: -6px -8px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.hint {
+  margin: 0;
+}
+
+.sheet-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 4px 0 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ops-list.flat {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+.report-row .row-main {
+  gap: 4px;
+}
+
+.report-row .report-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 560;
 }
 
 .stat-label {
@@ -460,20 +517,6 @@ button {
 
 .budget-row .row-main {
   gap: 6px;
-}
-
-.report-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 0 8px;
-}
-
-.report-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-weight: 560;
 }
 
 .chart {
@@ -815,6 +858,7 @@ details summary {
   .tab:hover:not(.add),
   .field:hover:not(:disabled),
   .pick-row:hover,
+  .stat.tile:hover,
   .link-button:hover,
   .banner:hover {
     background: var(--accent-soft);

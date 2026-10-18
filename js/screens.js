@@ -1,4 +1,4 @@
-import { addMonths, formatDay, formatMonth, formatMonthShort, monthRange } from './dates.js';
+import { addMonths, formatDay, formatMonth, monthRange } from './dates.js';
 import { formatMoney, formatPlain, parseMoney } from './money.js';
 import { getMeta } from './storage.js';
 import { openTxForm } from './txform.js';
@@ -7,7 +7,7 @@ import { openAccountForm } from './settings.js';
 
 const MINUS = '−';
 
-function primaryCurrency(ledger) {
+export function primaryCurrency(ledger) {
   return ledger.balances().find((account) => !account.archived)?.currency ?? 'RUB';
 }
 
@@ -19,7 +19,7 @@ function signed(tx, ledger) {
   return text;
 }
 
-function txRow(ctx, tx) {
+export function txRow(ctx, tx, { before } = {}) {
   const { ledger } = ctx;
   const account = ledger.account(tx.accountId);
   let title;
@@ -33,21 +33,29 @@ function txRow(ctx, tx) {
   }
   return h(
     'button',
-    { class: 'row tx-row', type: 'button', onClick: () => openTxForm(ctx, { tx }) },
+    {
+      class: 'row tx-row',
+      type: 'button',
+      onClick: () => {
+        before?.();
+        openTxForm(ctx, { tx });
+      },
+    },
     h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, title), h('span', { class: 'row-sub' }, tx.note ? `${tx.note} · ${sub}` : sub)),
     h('span', { class: `row-side amount ${tx.kind}` }, signed(tx, ledger)),
   );
 }
 
-function card(title, ...children) {
+export function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h3', {}, title) : null, ...children);
 }
 
-function stat(label, value, kind = '') {
-  return h('div', { class: 'stat' }, h('span', { class: 'stat-label' }, label), h('span', { class: `stat-value ${kind}` }, value));
+export function stat(label, value, kind = '', onClick = null) {
+  const parts = [h('span', { class: 'stat-label' }, label), h('span', { class: `stat-value ${kind}` }, value)];
+  return onClick ? h('button', { class: 'stat tile', type: 'button', onClick }, ...parts) : h('div', { class: 'stat' }, ...parts);
 }
 
-function bar(percent, kind = '') {
+export function bar(percent, kind = '') {
   return h('div', { class: 'bar' }, h('div', { class: `bar-fill ${kind}`, style: `width:${Math.max(0, Math.min(100, percent))}%` }));
 }
 
@@ -60,7 +68,7 @@ export function homeScreen(ctx) {
   const totals = summary.totals.length > 0 ? summary.totals : [{ currency: primaryCurrency(ledger), income: 0, expense: 0 }];
   const lastBackup = getMeta('lastBackup');
   const backupAge = lastBackup ? (Date.now() - new Date(lastBackup).getTime()) / 86400000 : Infinity;
-  const needsBackup = ledger.state.transactions.length >= 5 && backupAge > 14;
+  const needsBackup = ledger.state.transactions.length >= 1 && backupAge > 7;
 
   const perCurrency = new Map();
   for (const account of accounts) perCurrency.set(account.currency, (perCurrency.get(account.currency) ?? 0) + account.balance);
@@ -72,7 +80,9 @@ export function homeScreen(ctx) {
       ? h(
           'button',
           { class: 'banner', type: 'button', onClick: () => ctx.go('settings') },
-          lastBackup ? 'Прошло больше двух недель с последней копии данных. Нажмите, чтобы сделать копию.' : 'Данные хранятся только на этом устройстве. Нажмите, чтобы сделать резервную копию.',
+          lastBackup
+            ? 'Прошла неделя с последней резервной копии. Информацию мы на сервере не храним, она есть только на этом телефоне. Нажмите, чтобы сделать новую копию.'
+            : 'Сделайте резервную копию. Информацию мы на сервере не храним, она есть только на этом телефоне. Нажмите, чтобы сохранить копию в «Файлы».',
         )
       : null,
     monthSwitcher(formatMonth(ui.month), () => ctx.setMonth(addMonths(ui.month, -1)), () => ctx.setMonth(addMonths(ui.month, 1))),
@@ -365,95 +375,3 @@ export function budgetsScreen(ctx) {
   );
 }
 
-const PERIODS = [
-  { value: 'month', label: 'Месяц', months: 1 },
-  { value: 'quarter', label: '3 месяца', months: 3 },
-  { value: 'year', label: 'Год', months: 12 },
-];
-
-export function reportsScreen(ctx) {
-  const { ledger, ui } = ctx;
-  const period = PERIODS.find((item) => item.value === ui.reportPeriod);
-  const startMonth = addMonths(ui.month, 1 - period.months);
-  const from = monthRange(startMonth)[0];
-  const to = monthRange(ui.month)[1];
-  const summary = ledger.summary(from, to);
-  const monthly = ledger.monthly(from, to);
-  const currencies = summary.totals.map((total) => total.currency);
-  const currency = currencies.includes(ui.reportCurrency) ? ui.reportCurrency : (currencies[0] ?? primaryCurrency(ledger));
-  const total = summary.totals.find((item) => item.currency === currency) ?? { income: 0, expense: 0 };
-  const label = period.months === 1 ? formatMonth(ui.month) : `${formatMonthShort(startMonth)} – ${formatMonthShort(ui.month)}`;
-
-  const categoryBlock = (kind, title) => {
-    const rows = summary.byCategory.filter((entry) => entry.kind === kind && entry.currency === currency);
-    if (rows.length === 0) return null;
-    const sum = rows.reduce((acc, entry) => acc + entry.total, 0);
-    return card(
-      title,
-      rows.map((entry) =>
-        h(
-          'div',
-          { class: 'report-row' },
-          h('div', { class: 'report-head' }, h('span', {}, entry.name ?? 'Без категории'), h('span', { class: 'amount' }, formatMoney(entry.total, currency))),
-          bar((entry.total / sum) * 100, kind),
-          h('span', { class: 'row-sub' }, `${Math.round((entry.total / sum) * 100)}%`),
-        ),
-      ),
-    );
-  };
-
-  const series = monthly.filter((row) => row.currency === currency);
-  const peak = Math.max(1, ...series.flatMap((row) => [row.income, row.expense]));
-
-  return h(
-    'div',
-    { class: 'screen' },
-    segmented(PERIODS, ui.reportPeriod, (value) => {
-      ui.reportPeriod = value;
-      ctx.rerender();
-    }),
-    monthSwitcher(label, () => ctx.setMonth(addMonths(ui.month, -period.months)), () => ctx.setMonth(addMonths(ui.month, period.months))),
-    currencies.length > 1
-      ? h(
-          'div',
-          { class: 'chips' },
-          currencies.map((code) =>
-            h(
-              'button',
-              {
-                class: `chip${code === currency ? ' active' : ''}`,
-                type: 'button',
-                onClick: () => {
-                  ui.reportCurrency = code;
-                  ctx.rerender();
-                },
-              },
-              code,
-            ),
-          ),
-        )
-      : null,
-    card('Итого', h('div', { class: 'stats' }, stat('Доходы', formatMoney(total.income, currency), 'income'), stat('Расходы', formatMoney(total.expense, currency), 'expense'), stat('Итог', formatMoney(total.income - total.expense, currency), total.income - total.expense < 0 ? 'expense' : 'income'))),
-    summary.totals.length === 0 ? card(null, emptyState('За этот период операций нет.')) : null,
-    categoryBlock('expense', 'Расходы по категориям'),
-    categoryBlock('income', 'Доходы по категориям'),
-    series.length > 1
-      ? card(
-          'По месяцам',
-          h(
-            'div',
-            { class: 'chart' },
-            series.map((row) =>
-              h(
-                'div',
-                { class: 'chart-col' },
-                h('div', { class: 'chart-bars' }, h('div', { class: 'chart-bar income', style: `height:${(row.income / peak) * 100}%` }), h('div', { class: 'chart-bar expense', style: `height:${(row.expense / peak) * 100}%` })),
-                h('span', { class: 'chart-label' }, formatMonthShort(row.month).slice(0, 3)),
-              ),
-            ),
-          ),
-          h('div', { class: 'legend' }, h('span', { class: 'dot income' }), 'Доходы', h('span', { class: 'dot expense' }), 'Расходы'),
-        )
-      : null,
-  );
-}

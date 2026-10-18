@@ -1,4 +1,4 @@
-const VERSION = 'coffrie-2';
+const VERSION = 'coffrie-4';
 const FILES = [
   './',
   'index.html',
@@ -7,6 +7,8 @@ const FILES = [
   'js/main.js',
   'js/ledger.js',
   'js/envelope.js',
+  'js/periods.js',
+  'js/reports.js',
   'js/money.js',
   'js/dates.js',
   'js/sms.js',
