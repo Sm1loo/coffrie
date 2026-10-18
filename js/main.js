@@ -323,6 +323,10 @@ function start(state, initialRev, persist) {
     let controlled = Boolean(navigator.serviceWorker.controller);
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (controlled) {
+        if (!dirty && !saving && !document.querySelector('.overlay')) {
+          location.reload();
+          return;
+        }
         updateReady = true;
         render();
       }
@@ -331,6 +335,7 @@ function start(state, initialRev, persist) {
     navigator.serviceWorker
       .register('./sw.js')
       .then((registration) => {
+        registration.update().catch(() => {});
         document.addEventListener('visibilitychange', () => {
           if (document.visibilityState === 'visible') registration.update().catch(() => {});
         });
