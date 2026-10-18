@@ -15,6 +15,7 @@ const ICONS = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
 };
 
 export function icon(name, size = 22) {
@@ -82,11 +83,11 @@ export function toast(text) {
 
 const sheets = [];
 
-export function openSheet({ title, build, onClose }) {
+export function openSheet({ title, build, onClose, full = false }) {
   const body = h('div', { class: 'sheet-body' });
   const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Закрыть' }, icon('close'));
-  const panel = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('div', { class: 'sheet-head' }, h('h2', {}, title), closeButton), body);
-  const overlay = h('div', { class: 'overlay' }, panel);
+  const panel = h('div', { class: `sheet${full ? ' full' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('div', { class: 'sheet-head' }, h('h2', {}, title), closeButton), body);
+  const overlay = h('div', { class: `overlay${full ? ' full' : ''}` }, panel);
   const handle = {
     body,
     closed: false,
@@ -292,6 +293,20 @@ export function monthSwitcher(label, onPrev, onNext) {
     h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Предыдущий период', onClick: onPrev }, icon('left')),
     h('span', { class: 'month-label' }, label),
     h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Следующий период', onClick: onNext }, icon('right')),
+  );
+}
+
+export function expandButton(label, onClick) {
+  return h('button', { class: 'icon-button small', type: 'button', 'aria-label': label, title: label, onClick }, icon('expand', 18));
+}
+
+export function fillCard(title, { action = null, list, footer = [] }) {
+  return h(
+    'section',
+    { class: 'card fill' },
+    h('div', { class: 'card-head' }, h('h3', {}, title), action),
+    h('div', { class: 'scroll-area' }, list),
+    ...footer,
   );
 }
 

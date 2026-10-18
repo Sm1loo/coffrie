@@ -2,7 +2,7 @@ import { addMonths, formatDay, formatMonth, monthRange } from './dates.js';
 import { formatMoney, formatPlain, parseMoney } from './money.js';
 import { getMeta } from './storage.js';
 import { openTxForm } from './txform.js';
-import { confirmDialog, emptyState, h, messageFor, monthSwitcher, openSheet, pick, segmented, toast } from './ui.js';
+import { confirmDialog, emptyState, expandButton, fillCard, h, messageFor, monthSwitcher, openSheet, pick, segmented, toast } from './ui.js';
 import { openAccountForm } from './settings.js';
 
 const MINUS = '−';
@@ -46,6 +46,28 @@ export function txRow(ctx, tx, { before } = {}) {
   );
 }
 
+function dayGroups(ctx, items, options = {}) {
+  const nodes = [];
+  let day = '';
+  for (const tx of items) {
+    if (tx.occurredOn !== day) {
+      day = tx.occurredOn;
+      nodes.push(h('div', { class: 'day' }, formatDay(day)));
+    }
+    nodes.push(txRow(ctx, tx, options));
+  }
+  return nodes;
+}
+
+function openFullRecent(ctx) {
+  openSheet({
+    title: 'Последние операции',
+    full: true,
+    build: (handle) => h('div', { class: 'full-list' }, dayGroups(ctx, ctx.ledger.listTransactions({ limit: 200 }).items, { before: () => handle.close() })),
+    onClose: () => ctx.rerender(),
+  });
+}
+
 export function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h3', {}, title) : null, ...children);
 }
@@ -64,7 +86,7 @@ export function homeScreen(ctx) {
   const [from, to] = monthRange(ui.month);
   const summary = ledger.summary(from, to);
   const accounts = ledger.balances().filter((account) => !account.archived);
-  const recent = ledger.listTransactions({ limit: 6 }).items;
+  const recent = ledger.listTransactions({ limit: 60 }).items;
   const totals = summary.totals.length > 0 ? summary.totals : [{ currency: primaryCurrency(ledger), income: 0, expense: 0 }];
   const lastBackup = getMeta('lastBackup');
   const backupAge = lastBackup ? (Date.now() - new Date(lastBackup).getTime()) / 86400000 : Infinity;
@@ -102,23 +124,26 @@ export function homeScreen(ctx) {
       ? card('Счета', emptyState('Добавьте первый счёт, например карту Сбербанка.', h('button', { class: 'button primary', type: 'button', onClick: () => openAccountForm(ctx) }, 'Добавить счёт')))
       : card(
           'Счета',
-          accounts.map((account) =>
-            h(
-              'button',
-              { class: 'row', type: 'button', onClick: () => ctx.showAccount(account.id) },
-              h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, account.name)),
-              h('span', { class: `row-side amount ${account.balance < 0 ? 'expense' : ''}` }, formatMoney(account.balance, account.currency)),
+          h(
+            'div',
+            { class: 'scroll-area capped' },
+            accounts.map((account) =>
+              h(
+                'button',
+                { class: 'row', type: 'button', onClick: () => ctx.showAccount(account.id) },
+                h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, account.name)),
+                h('span', { class: `row-side amount ${account.balance < 0 ? 'expense' : ''}` }, formatMoney(account.balance, account.currency)),
+              ),
             ),
           ),
           perCurrency.size > 0 && accounts.length > 1
             ? h('div', { class: 'total-line' }, [...perCurrency].map(([currency, sum]) => h('span', {}, `Всего: ${formatMoney(sum, currency)}`)))
             : null,
         ),
-    card(
-      'Последние операции',
-      recent.length === 0 ? emptyState('Операций пока нет. Нажмите «+», чтобы добавить первую.') : recent.map((tx) => txRow(ctx, tx)),
-      recent.length > 0 ? h('button', { class: 'button wide', type: 'button', onClick: () => ctx.go('ops') }, 'Все операции') : null,
-    ),
+    fillCard('Последние операции', {
+      action: recent.length > 0 ? expandButton('Развернуть на весь экран', () => openFullRecent(ctx)) : null,
+      list: recent.length === 0 ? emptyState('Операций пока нет. Нажмите «+», чтобы добавить первую.') : dayGroups(ctx, recent),
+    }),
   );
 }
 
@@ -129,9 +154,9 @@ const OPS_KINDS = [
   { value: 'transfer', label: 'Переводы' },
 ];
 
-export function operationsScreen(ctx) {
+function makeOpsList(ctx, { before } = {}) {
   const { ledger, ui } = ctx;
-  const list = h('div', { class: 'ops-list' });
+  const list = h('div', { class: 'ops-items' });
 
   const draw = () => {
     const range = ui.opsAll ? [undefined, undefined] : monthRange(ui.month);
@@ -154,7 +179,7 @@ export function operationsScreen(ctx) {
         day = tx.occurredOn;
         nodes.push(h('div', { class: 'day' }, formatDay(day)));
       }
-      nodes.push(txRow(ctx, tx));
+      nodes.push(txRow(ctx, tx, { before }));
     }
     if (total > items.length) {
       nodes.push(
@@ -175,7 +200,44 @@ export function operationsScreen(ctx) {
     list.replaceChildren(...nodes);
   };
   draw();
+  return { list, draw };
+}
 
+function openFullOps(ctx) {
+  const { ui } = ctx;
+  openSheet({
+    title: 'Операции',
+    full: true,
+    onClose: () => ctx.rerender(),
+    build(handle) {
+      const { list, draw } = makeOpsList(ctx, { before: () => handle.close() });
+      return h(
+        'div',
+        { class: 'full-list' },
+        h(
+          'label',
+          { class: 'search' },
+          h('input', {
+            type: 'search',
+            placeholder: 'Поиск по заметке',
+            autocomplete: 'off',
+            value: ui.opsQuery,
+            onInput: (event) => {
+              ui.opsQuery = event.target.value;
+              ui.opsLimit = 100;
+              draw();
+            },
+          }),
+        ),
+        list,
+      );
+    },
+  });
+}
+
+export function operationsScreen(ctx) {
+  const { ledger, ui } = ctx;
+  const { list, draw } = makeOpsList(ctx);
   const accountName = ui.opsAccount ? ledger.account(ui.opsAccount)?.name : null;
   return h(
     'div',
@@ -237,7 +299,7 @@ export function operationsScreen(ctx) {
         'За всё время',
       ),
     ),
-    list,
+    fillCard('Операции', { action: expandButton('Развернуть на весь экран', () => openFullOps(ctx)), list }),
   );
 }
 
@@ -337,10 +399,9 @@ export function budgetsScreen(ctx) {
     'div',
     { class: 'screen' },
     monthSwitcher(formatMonth(ui.month), () => ctx.setMonth(addMonths(ui.month, -1)), () => ctx.setMonth(addMonths(ui.month, 1))),
-    card(
-      'Бюджеты по категориям',
-      items.length === 0 ? emptyState('На этот месяц лимитов нет.') : rows,
-      h('p', { class: 'muted' }, items.length > 0 ? 'Справа остаток лимита.' : null),
+    fillCard('Бюджеты по категориям', {
+      list: items.length === 0 ? emptyState('На этот месяц лимитов нет.') : [...rows, h('p', { class: 'muted' }, 'Справа остаток лимита.')],
+      footer: [
       free.length > 0
         ? h(
             'button',
@@ -371,7 +432,8 @@ export function budgetsScreen(ctx) {
             'Скопировать с прошлого месяца',
           )
         : null,
-    ),
+      ].filter(Boolean),
+    }),
   );
 }
 

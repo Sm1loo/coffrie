@@ -2,7 +2,7 @@ import { createDefaultState } from './ledger.js';
 import { today } from './dates.js';
 import { formatMoney, formatPlain, parseSignedMoney } from './money.js';
 import { getMeta, setMeta } from './storage.js';
-import { confirmDialog, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
+import { confirmDialog, fillCard, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
 import { openFromSms } from './txform.js';
 
 const CURRENCIES = [
@@ -278,6 +278,12 @@ async function importBackup(ctx, file) {
   ctx.rerender();
 }
 
+const SETTINGS_TABS = [
+  { value: 'accounts', label: 'Счета' },
+  { value: 'categories', label: 'Категории' },
+  { value: 'data', label: 'Данные' },
+];
+
 function anchored(element, name) {
   element.dataset.anchor = name;
   return element;
@@ -313,52 +319,27 @@ export function settingsScreen(ctx) {
     },
   });
 
-  return h(
-    'div',
-    { class: 'screen' },
-    section(
-      'Счета',
-      accounts.length === 0 ? h('p', { class: 'muted' }, 'Счетов пока нет.') : null,
-      accounts.map((account) =>
-        row(account.name + (account.archived ? ' · архив' : ''), formatMoney(account.balance, account.currency), () => openAccountForm(ctx, { account }), account.archived ? ' archived' : ''),
-      ),
-      h('button', { class: 'button wide', type: 'button', onClick: () => openAccountForm(ctx) }, 'Добавить счёт'),
-    ),
-    section(
-      'Категории',
-      segmented(
-        [
-          { value: 'expense', label: 'Расходы' },
-          { value: 'income', label: 'Доходы' },
-        ],
-        ui.settingsKind,
-        (kind) => {
-          ui.settingsKind = kind;
-          ctx.rerender();
-        },
-      ),
-      categories.map((category) => row(category.name + (category.archived ? ' · архив' : ''), '', () => openCategoryForm(ctx, { category }), category.archived ? ' archived' : '')),
-      h('button', { class: 'button wide', type: 'button', onClick: () => openCategoryForm(ctx, { kind: ui.settingsKind }) }, 'Добавить категорию'),
-    ),
-    section(
-      'SMS из банка',
-      h('p', { class: 'muted' }, 'Вставьте текст сообщения от банка, и приложение заполнит операцию. Сумму, тип и магазин нужно проверить перед сохранением. Если в названии счёта есть последние 4 цифры карты, счёт выберется сам.'),
-      smsBox,
-      h('button', { class: 'button wide primary', type: 'button', onClick: () => pasteIntoBox(ctx, smsBox) }, 'Вставить из буфера и разобрать'),
-      h('button', { class: 'button wide', type: 'button', onClick: () => openFromSms(ctx, smsBox.value) }, 'Разобрать текст выше'),
+
+  const smsSection = section(
+    'SMS из банка',
+    h('p', { class: 'muted' }, 'Вставьте текст сообщения от банка, и приложение заполнит операцию. Сумму, тип и магазин нужно проверить перед сохранением. Если в названии счёта есть последние 4 цифры карты, счёт выберется сам.'),
+    smsBox,
+    h('button', { class: 'button wide primary', type: 'button', onClick: () => pasteIntoBox(ctx, smsBox) }, 'Вставить из буфера и разобрать'),
+    h('button', { class: 'button wide', type: 'button', onClick: () => openFromSms(ctx, smsBox.value) }, 'Разобрать текст выше'),
+    h(
+      'details',
+      {},
+      h('summary', {}, 'Как ускорить через «Команды» iPhone'),
       h(
-        'details',
-        {},
-        h('summary', {}, 'Как ускорить через «Команды» iPhone'),
-        h(
-          'p',
-          { class: 'muted' },
-          'В приложении «Команды» создайте автоматизацию «Сообщение» от отправителя 900 с действиями «Скопировать в буфер обмена» (содержимое: входящее сообщение) и, при желании, «Показать уведомление». Когда придёт SMS, откройте Coffrie, нажмите «+» и «Вставить SMS из буфера». Ссылки для автоматического открытия не используйте: они открываются в Safari, а установленное приложение хранит данные отдельно.',
-        ),
+        'p',
+        { class: 'muted' },
+        'В приложении «Команды» создайте автоматизацию «Сообщение» от отправителя 900 с действиями «Скопировать в буфер обмена» (содержимое: входящее сообщение) и, при желании, «Показать уведомление». Когда придёт SMS, откройте Coffrie, нажмите «+» и «Вставить SMS из буфера». Ссылки для автоматического открытия не используйте: они открываются в Safari, а установленное приложение хранит данные отдельно.',
       ),
     ),
-    anchored(
-      section(
+  );
+
+  const dataSection = anchored(
+    section(
       'Данные',
       h(
         'p',
@@ -390,12 +371,54 @@ export function settingsScreen(ctx) {
         },
         'Удалить все данные',
       ),
+    ),
+    'backup',
+  );
+
+  const installSection = section(
+    'Установка на iPhone',
+    h('p', { class: 'muted' }, 'Откройте сайт в Safari, нажмите «Поделиться» и выберите «На экран “Домой”». Приложение будет открываться как обычное и работать без интернета.'),
+  );
+
+  let body;
+  if (ui.settingsTab === 'accounts') {
+    body = fillCard('Счета', {
+      list: accounts.length === 0
+        ? h('p', { class: 'muted' }, 'Счетов пока нет.')
+        : accounts.map((account) =>
+            row(account.name + (account.archived ? ' · архив' : ''), formatMoney(account.balance, account.currency), () => openAccountForm(ctx, { account }), account.archived ? ' archived' : ''),
+          ),
+      footer: [h('button', { class: 'button wide', type: 'button', onClick: () => openAccountForm(ctx) }, 'Добавить счёт')],
+    });
+  } else if (ui.settingsTab === 'categories') {
+    body = [
+      segmented(
+        [
+          { value: 'expense', label: 'Расходы' },
+          { value: 'income', label: 'Доходы' },
+        ],
+        ui.settingsKind,
+        (kind) => {
+          ui.settingsKind = kind;
+          ctx.rerender();
+        },
       ),
-      'backup',
-    ),
-    section(
-      'Установка на iPhone',
-      h('p', { class: 'muted' }, 'Откройте сайт в Safari, нажмите «Поделиться» и выберите «На экран “Домой”». Приложение будет открываться как обычное и работать без интернета.'),
-    ),
+      fillCard('Категории', {
+        list: categories.map((category) => row(category.name + (category.archived ? ' · архив' : ''), '', () => openCategoryForm(ctx, { category }), category.archived ? ' archived' : '')),
+        footer: [h('button', { class: 'button wide', type: 'button', onClick: () => openCategoryForm(ctx, { kind: ui.settingsKind }) }, 'Добавить категорию')],
+      }),
+    ];
+  } else {
+    body = h('div', { class: 'scroll-area stack' }, dataSection, smsSection, installSection);
+  }
+
+  return h(
+    'div',
+    { class: 'screen' },
+    segmented(SETTINGS_TABS, ui.settingsTab, (tab) => {
+      ui.settingsTab = tab;
+      ctx.rerender();
+    }),
+    body,
   );
 }

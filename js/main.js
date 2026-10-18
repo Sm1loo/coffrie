@@ -178,6 +178,7 @@ function start(state, initialRev, persist) {
     opsQuery: '',
     opsLimit: 100,
     settingsKind: 'expense',
+    settingsTab: 'accounts',
     reportPeriod: 'month',
     reportCurrency: null,
     reportCustomSet: false,
@@ -190,6 +191,7 @@ function start(state, initialRev, persist) {
     rerender: () => render(),
     go(tab, anchor = null) {
       ui.tab = tab;
+      if (anchor === 'backup') ui.settingsTab = 'data';
       render(true, anchor);
     },
     setMonth(month) {
@@ -214,9 +216,10 @@ function start(state, initialRev, persist) {
   function render(resetScroll = false, anchor = null) {
     const previous = document.querySelector('.content');
     const scrollTop = previous && !resetScroll ? previous.scrollTop : 0;
+    const areaScroll = resetScroll ? [] : [...document.querySelectorAll('.content .scroll-area')].map((area) => area.scrollTop);
     const content = h(
       'main',
-      { class: 'content' },
+      { class: `content${ui.tab === 'reports' ? ' scrolls' : ''}` },
       updateReady
         ? h(
             'button',
@@ -271,8 +274,14 @@ function start(state, initialRev, persist) {
     );
     app.replaceChildren(header, content, tabbar);
     content.scrollTop = scrollTop;
+    content.querySelectorAll('.scroll-area').forEach((area, index) => {
+      area.scrollTop = areaScroll[index] ?? 0;
+    });
     const target = anchor ? content.querySelector(`[data-anchor="${anchor}"]`) : null;
-    if (target) content.scrollTop += target.getBoundingClientRect().top - content.getBoundingClientRect().top - 8;
+    if (target) {
+      const scroller = target.closest('.scroll-area') ?? content;
+      scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+    }
   }
 
   function findByName(list, name) {
