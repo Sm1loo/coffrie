@@ -12,6 +12,17 @@ export const DEFAULT_CATEGORIES = {
   income: ['Зарплата', 'Подработка', 'Проценты', 'Подарки', 'Переводы от людей', 'Прочее'],
 };
 
+export const CURRENT_VERSION = 1;
+
+const MIGRATIONS = {};
+
+export function migrate(data) {
+  if (!data || typeof data !== 'object' || !Number.isInteger(data.version)) return data;
+  let result = data;
+  while (result.version < CURRENT_VERSION && MIGRATIONS[result.version]) result = MIGRATIONS[result.version](result);
+  return result;
+}
+
 const KINDS = ['income', 'expense', 'transfer'];
 
 const isId = (value) => Number.isInteger(value) && value > 0;
@@ -35,7 +46,7 @@ function cleanTitle(value) {
 const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
 
 export function createState() {
-  return { version: 1, nextId: 1, accounts: [], categories: [], transactions: [], budgets: [] };
+  return { version: CURRENT_VERSION, nextId: 1, accounts: [], categories: [], transactions: [], budgets: [] };
 }
 
 export function createDefaultState() {
@@ -407,11 +418,12 @@ export class Ledger {
   }
 }
 
-export function validateState(data) {
+export function validateState(raw) {
   const fail = () => {
     throw new LedgerError('invalid_backup');
   };
-  if (!data || typeof data !== 'object' || data.version !== 1) fail();
+  const data = migrate(raw);
+  if (!data || typeof data !== 'object' || data.version !== CURRENT_VERSION) fail();
   for (const key of ['accounts', 'categories', 'transactions', 'budgets']) {
     if (!Array.isArray(data[key])) fail();
   }

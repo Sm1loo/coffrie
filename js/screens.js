@@ -79,7 +79,7 @@ export function homeScreen(ctx) {
     needsBackup
       ? h(
           'button',
-          { class: 'banner', type: 'button', onClick: () => ctx.go('settings') },
+          { class: 'banner', type: 'button', onClick: () => ctx.go('settings', 'backup') },
           lastBackup
             ? 'Прошла неделя с последней резервной копии. Информацию мы на сервере не храним, она есть только на этом телефоне. Нажмите, чтобы сделать новую копию.'
             : 'Сделайте резервную копию. Информацию мы на сервере не храним, она есть только на этом телефоне. Нажмите, чтобы сохранить копию в «Файлы».',

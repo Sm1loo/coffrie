@@ -1,5 +1,5 @@
 import { currentMonth, monthRange } from './dates.js';
-import { Ledger, createDefaultState, validateState } from './ledger.js';
+import { CURRENT_VERSION, Ledger, createDefaultState, validateState } from './ledger.js';
 import { parseMoney } from './money.js';
 import { reportsScreen } from './reports.js';
 import { budgetsScreen, homeScreen, operationsScreen } from './screens.js';
@@ -13,18 +13,12 @@ const SCREENS = { home: homeScreen, ops: operationsScreen, budgets: budgetsScree
 
 const app = document.getElementById('app');
 
-const THEMES = ['auto', 'light', 'dark'];
-const THEME_NAMES = { auto: 'как в системе', light: 'светлая', dark: 'тёмная' };
-const THEME_ICONS = { auto: 'auto', light: 'sun', dark: 'moon' };
-
 function currentTheme() {
-  const saved = getMeta('theme');
-  return THEMES.includes(saved) ? saved : 'auto';
+  return getMeta('theme') === 'light' ? 'light' : 'dark';
 }
 
 function applyTheme(theme) {
-  if (theme === 'auto') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = theme;
 }
 
 applyTheme(currentTheme());
@@ -73,6 +67,10 @@ async function boot() {
 
   let state;
   try {
+    const savedVersion = loaded.envelope.state.version;
+    if (Number.isInteger(savedVersion) && savedVersion < CURRENT_VERSION) {
+      await saveRaw(`premigrate-v${savedVersion}-${Date.now()}`, loaded.envelope);
+    }
     state = validateState(loaded.envelope.state);
   } catch {
     bootScreen(
@@ -100,6 +98,7 @@ function start(state, initialRev, persist) {
   let saving = false;
   let blocked = false;
   let notice = persist ? null : { text: 'Данные не сохраняются. После закрытия приложения всё исчезнет.' };
+  let updateReady = false;
   let timer = 0;
 
   const ledger = new Ledger(state, () => {
@@ -131,7 +130,7 @@ function start(state, initialRev, persist) {
           }
         } else {
           dirty = true;
-          notice = { text: 'Не удалось сохранить данные: нет места или хранилище недоступно. Сделайте резервную копию в настройках.', handler: () => ctx.go('settings') };
+          notice = { text: 'Не удалось сохранить данные: нет места или хранилище недоступно. Сделайте резервную копию в настройках.', handler: () => ctx.go('settings', 'backup') };
           render();
           break;
         }
@@ -189,9 +188,9 @@ function start(state, initialRev, persist) {
     ledger,
     ui,
     rerender: () => render(),
-    go(tab) {
+    go(tab, anchor = null) {
       ui.tab = tab;
-      render(true);
+      render(true, anchor);
     },
     setMonth(month) {
       ui.month = month;
@@ -212,10 +211,29 @@ function start(state, initialRev, persist) {
     return h('button', { class: `tab${ui.tab === tab ? ' active' : ''}`, type: 'button', 'aria-current': ui.tab === tab ? 'page' : null, onClick: () => ctx.go(tab) }, icon(iconName), h('span', {}, label));
   }
 
-  function render(resetScroll = false) {
+  function render(resetScroll = false, anchor = null) {
     const previous = document.querySelector('.content');
     const scrollTop = previous && !resetScroll ? previous.scrollTop : 0;
-    const content = h('main', { class: 'content' }, notice ? h('button', { class: 'banner alert', type: 'button', onClick: notice.handler }, notice.text) : null, SCREENS[ui.tab](ctx));
+    const content = h(
+      'main',
+      { class: 'content' },
+      updateReady
+        ? h(
+            'button',
+            {
+              class: 'banner',
+              type: 'button',
+              onClick: async () => {
+                await flush();
+                location.reload();
+              },
+            },
+            'Вышла новая версия Coffrie. Ваши данные сохранены и не пострадают. Нажмите, чтобы обновить.',
+          )
+        : null,
+      notice ? h('button', { class: 'banner alert', type: 'button', onClick: notice.handler }, notice.text) : null,
+      SCREENS[ui.tab](ctx),
+    );
     const header = h(
       'header',
       { class: 'topbar' },
@@ -228,17 +246,17 @@ function start(state, initialRev, persist) {
         {
           class: 'icon-button',
           type: 'button',
-          'aria-label': `Тема: ${THEME_NAMES[currentTheme()]}`,
-          title: `Тема: ${THEME_NAMES[currentTheme()]}`,
+          'aria-label': currentTheme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему',
+          title: currentTheme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему',
           onClick: () => {
-            const next = THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length];
+            const next = currentTheme() === 'dark' ? 'light' : 'dark';
             setMeta('theme', next);
             applyTheme(next);
-            toast(`Тема: ${THEME_NAMES[next]}`);
+            toast(next === 'dark' ? 'Тёмная тема' : 'Светлая тема');
             render();
           },
         },
-        icon(THEME_ICONS[currentTheme()]),
+        icon(currentTheme() === 'dark' ? 'sun' : 'moon'),
       ),
       ui.tab === 'settings' ? null : h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Настройки', title: 'Настройки', onClick: () => ctx.go('settings') }, icon('gear')),
     );
@@ -253,6 +271,8 @@ function start(state, initialRev, persist) {
     );
     app.replaceChildren(header, content, tabbar);
     content.scrollTop = scrollTop;
+    const target = anchor ? content.querySelector(`[data-anchor="${anchor}"]`) : null;
+    if (target) content.scrollTop += target.getBoundingClientRect().top - content.getBoundingClientRect().top - 8;
   }
 
   function findByName(list, name) {
@@ -300,7 +320,22 @@ function start(state, initialRev, persist) {
   handleHash();
 
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let controlled = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (controlled) {
+        updateReady = true;
+        render();
+      }
+      controlled = true;
+    });
+    navigator.serviceWorker
+      .register('./sw.js')
+      .then((registration) => {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') registration.update().catch(() => {});
+        });
+      })
+      .catch(() => {});
   }
 }
 

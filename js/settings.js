@@ -278,6 +278,11 @@ async function importBackup(ctx, file) {
   ctx.rerender();
 }
 
+function anchored(element, name) {
+  element.dataset.anchor = name;
+  return element;
+}
+
 function section(title, ...children) {
   return h('section', { class: 'card' }, h('h3', {}, title), ...children);
 }
@@ -352,7 +357,8 @@ export function settingsScreen(ctx) {
         ),
       ),
     ),
-    section(
+    anchored(
+      section(
       'Данные',
       h(
         'p',
@@ -384,6 +390,8 @@ export function settingsScreen(ctx) {
         },
         'Удалить все данные',
       ),
+      ),
+      'backup',
     ),
     section(
       'Установка на iPhone',
