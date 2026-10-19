@@ -101,10 +101,16 @@ export class Ledger {
     if (!isCurrency(currency)) throw new LedgerError('invalid_currency');
     if (!isSignedMoney(openingBalance)) throw new LedgerError('invalid_amount');
     if (this.state.accounts.some((item) => sameName(item.name, name))) throw new LedgerError('duplicate');
-    const account = { id: this.#nextId(), name, currency, openingBalance, archived: false };
+    const primary = Boolean(input.primary);
+    if (primary) for (const other of this.state.accounts) other.primary = false;
+    const account = { id: this.#nextId(), name, currency, openingBalance, archived: false, primary };
     this.state.accounts.push(account);
     this.#commit();
     return account;
+  }
+
+  defaultAccount() {
+    return this.state.accounts.find((item) => item.primary && !item.archived) ?? null;
   }
 
   updateAccount(id, patch) {
@@ -122,9 +128,12 @@ export class Ledger {
       next.openingBalance = patch.openingBalance;
     }
     if (patch.archived !== undefined) next.archived = Boolean(patch.archived);
+    if (patch.primary !== undefined) next.primary = Boolean(patch.primary);
+    if (next.archived) next.primary = false;
     if (this.state.accounts.some((item) => item.id !== id && sameName(item.name, next.name))) {
       throw new LedgerError('duplicate');
     }
+    if (next.primary) for (const other of this.state.accounts) other.primary = false;
     Object.assign(account, next);
     this.#commit();
     return account;
@@ -500,8 +509,9 @@ export function validateState(raw) {
   try {
     for (const item of data.accounts) {
       take(item.id);
-      const account = ledger.addAccount({ name: item.name, currency: item.currency, openingBalance: item.openingBalance });
+      const account = ledger.addAccount({ name: item.name, currency: item.currency, openingBalance: item.openingBalance, primary: item.primary });
       Object.assign(account, { id: item.id, archived: Boolean(item.archived) });
+      if (account.archived) account.primary = false;
     }
     const ordered = [...data.categories.filter((item) => item.parentId == null), ...data.categories.filter((item) => item.parentId != null)];
     for (const item of ordered) {

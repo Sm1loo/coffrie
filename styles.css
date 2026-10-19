@@ -954,9 +954,66 @@ button {
   font-size: 14px;
 }
 
-.pick-row.create {
+.pick-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pick-create-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
   color: var(--accent);
+  font-size: 14px;
   font-weight: 600;
+}
+
+.subs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subs-chips .muted {
+  margin: 0;
+}
+
+.subs-add {
+  display: flex;
+  gap: 8px;
+}
+
+.subs-add input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  outline: 0;
+  background: var(--surface);
+  font-weight: 560;
+}
+
+.subs-add input:focus {
+  border-color: var(--accent);
 }
 
 .pick-row.selected {
@@ -994,6 +1051,7 @@ details summary {
   .field:hover:not(:disabled),
   .pick-row:hover,
   .stat.tile:hover,
+  .pill:hover,
   .link-button:hover,
   .banner:hover {
     background: var(--accent-soft);

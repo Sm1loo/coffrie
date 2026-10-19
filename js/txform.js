@@ -45,7 +45,7 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
 
   const usable = ledger.balances().filter((account) => !account.archived);
   const lastAccount = Number(getMeta('lastAccount'));
-  const defaultAccount = (usable.find((account) => account.id === lastAccount) ?? usable[0])?.id ?? null;
+  const defaultAccount = (ledger.defaultAccount() ?? usable.find((account) => account.id === lastAccount) ?? usable[0])?.id ?? null;
 
   const form = tx
     ? {
@@ -102,7 +102,7 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
           asSub: result.create === 'sub',
           parentId: result.create === 'sub' ? parentId : null,
           name: result.name,
-          onCreated: (created) => {
+          onDone: (created) => {
             form.categoryId = created.id;
             handle.render();
             toast(`Выбрано: ${ledger.categoryPath(created.id)}`);
@@ -212,8 +212,8 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
                 selected: form.categoryId,
                 searchable: true,
                 create: [
-                  { key: 'category', label: 'Новая категория', typed: (name) => `Создать категорию «${name}»` },
-                  { key: 'sub', label: 'Новая подкатегория', typed: (name) => `Создать подкатегорию «${name}»` },
+                  { key: 'category', label: 'Категория', typedLabel: 'категорию' },
+                  { key: 'sub', label: 'Подкатегория', typedLabel: 'подкатегорию' },
                 ],
               });
               if (value === undefined) return;

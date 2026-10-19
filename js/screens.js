@@ -132,7 +132,7 @@ export function homeScreen(ctx) {
               h(
                 'button',
                 { class: 'row', type: 'button', onClick: () => ctx.showAccount(account.id) },
-                h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, account.name)),
+                h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, account.name), account.primary ? h('span', { class: 'row-sub' }, 'Основной счёт') : null),
                 h('span', { class: `row-side amount ${account.balance < 0 ? 'expense' : ''}` }, formatMoney(account.balance, account.currency)),
               ),
             ),

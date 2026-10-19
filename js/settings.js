@@ -24,6 +24,7 @@ export function openAccountForm(ctx, { account = null, onDone } = {}) {
     name: account?.name ?? '',
     currency: account?.currency ?? 'RUB',
     balance: account ? formatPlain(account.openingBalance) : '',
+    primary: account?.primary ?? false,
   };
   openSheet({
     title: account ? 'Счёт' : 'Новый счёт',
@@ -39,8 +40,8 @@ export function openAccountForm(ctx, { account = null, onDone } = {}) {
           return;
         }
         try {
-          if (account) ledger.updateAccount(account.id, { name: form.name, currency: form.currency, openingBalance });
-          else ledger.addAccount({ name: form.name, currency: form.currency, openingBalance });
+          if (account) ledger.updateAccount(account.id, { name: form.name, currency: form.currency, openingBalance, primary: form.primary });
+          else ledger.addAccount({ name: form.name, currency: form.currency, openingBalance, primary: form.primary });
         } catch (error) {
           errorBox.textContent = messageFor(error);
           return;
@@ -89,6 +90,24 @@ export function openAccountForm(ctx, { account = null, onDone } = {}) {
           h('span', { class: 'field-label' }, 'Начальный остаток'),
           h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', placeholder: '0', value: form.balance, onInput: (event) => (form.balance = event.target.value) }),
         ),
+        account?.archived
+          ? null
+          : [
+              h(
+                'button',
+                {
+                  class: 'field',
+                  type: 'button',
+                  onClick: () => {
+                    form.primary = !form.primary;
+                    handle.render();
+                  },
+                },
+                h('span', { class: 'field-label' }, 'Основной счёт'),
+                h('span', { class: 'field-value' }, form.primary ? 'Да' : 'Нет'),
+              ),
+              h('p', { class: 'muted hint' }, 'Основной счёт подставляется по умолчанию при добавлении дохода, расхода и перевода. Он может быть только один.'),
+            ],
         errorBox,
         h(
           'div',
@@ -131,10 +150,11 @@ export function openAccountForm(ctx, { account = null, onDone } = {}) {
   });
 }
 
-export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub = false, parentId = null, name = '', onCreated = null } = {}) {
+export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub = false, parentId = null, name = '', onDone = null } = {}) {
   const { ledger } = ctx;
   const kindOf = category ? category.kind : kind;
   const form = { name: category ? category.name : name, parentId: category ? category.parentId : parentId };
+  const isRoot = category !== null && category.parentId === null;
   const hasChildren = category ? ledger.childrenOf(category.id).length > 0 : false;
   const showParent = category ? !hasChildren : asSub;
 
@@ -150,6 +170,92 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub
     build(handle) {
       const errorBox = h('div', { class: 'form-error', role: 'alert' });
       const used = category ? ledger.state.transactions.some((tx) => tx.categoryId === category.id) : false;
+
+      const subsBox = h('div', { class: 'subs-chips' });
+      const subInput = h('input', {
+        type: 'text',
+        maxlength: '100',
+        autocomplete: 'off',
+        placeholder: 'Название подкатегории',
+        onKeydown: (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            addSub();
+          }
+        },
+      });
+
+      const drawSubs = () => {
+        const kids = ledger.childrenOf(category.id).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        subsBox.replaceChildren(
+          ...(kids.length === 0
+            ? [h('p', { class: 'muted' }, 'Подкатегорий пока нет.')]
+            : kids.map((child) =>
+                h(
+                  'button',
+                  {
+                    class: `chip${child.archived ? ' archived' : ''}`,
+                    type: 'button',
+                    onClick: () => openCategoryForm(ctx, { category: child, onDone: () => drawSubs() }),
+                  },
+                  child.name + (child.archived ? ' · архив' : ''),
+                ),
+              )),
+        );
+      };
+
+      function addSub() {
+        const text = subInput.value.trim();
+        if (!text) return;
+        try {
+          ledger.addCategory({ name: text, kind: kindOf, parentId: category.id });
+        } catch (error) {
+          errorBox.textContent = messageFor(error);
+          return;
+        }
+        errorBox.textContent = '';
+        subInput.value = '';
+        parentField?.remove();
+        deleteButton?.remove();
+        drawSubs();
+        ctx.rerender();
+        subInput.focus();
+      }
+
+      if (isRoot) drawSubs();
+
+      const parentField = showParent
+        ? fieldButton(asSub && !category ? 'Основная категория' : 'Входит в', ledger.category(form.parentId)?.name ?? 'Нет (основная категория)', async () => {
+            const value = await pick({ title: 'Основная категория', options: parentOptions(), selected: form.parentId });
+            if (value === undefined) return;
+            form.parentId = value;
+            handle.render();
+          })
+        : null;
+
+      const deleteButton =
+        category && !used && !hasChildren
+          ? h(
+              'button',
+              {
+                class: 'button danger',
+                type: 'button',
+                onClick: async () => {
+                  if (!(await confirmDialog({ title: 'Удалить категорию?', text: ledger.categoryPath(category.id), okLabel: 'Удалить', danger: true }))) return;
+                  try {
+                    ledger.deleteCategory(category.id);
+                  } catch (error) {
+                    errorBox.textContent = messageFor(error);
+                    return;
+                  }
+                  handle.close();
+                  ctx.rerender();
+                  onDone?.(null);
+                },
+              },
+              'Удалить',
+            )
+          : null;
 
       const save = () => {
         if (!category && asSub && form.parentId === null) {
@@ -167,7 +273,8 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub
         handle.close();
         toast('Сохранено');
         ctx.rerender();
-        if (!category) onCreated?.(saved);
+        if (onDone) onDone(saved);
+        else if (!category && !asSub) openCategoryForm(ctx, { category: saved });
       };
 
       return h(
@@ -180,38 +287,27 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub
             save();
           },
         },
-        showParent
-          ? fieldButton(asSub && !category ? 'Основная категория' : 'Входит в', ledger.category(form.parentId)?.name ?? 'Нет (основная категория)', async () => {
-              const value = await pick({ title: 'Основная категория', options: parentOptions(), selected: form.parentId });
-              if (value === undefined) return;
-              form.parentId = value;
-              handle.render();
-            })
-          : null,
+        parentField,
         h(
           'label',
           { class: 'input-row' },
           h('span', { class: 'field-label' }, 'Название'),
           h('input', { type: 'text', maxlength: '100', autocomplete: 'off', value: form.name, onInput: (event) => (form.name = event.target.value) }),
         ),
+        isRoot
+          ? h(
+              'div',
+              { class: 'subs-section' },
+              h('span', { class: 'field-label' }, 'Подкатегории'),
+              subsBox,
+              h('div', { class: 'subs-add' }, subInput, h('button', { class: 'button', type: 'button', onClick: addSub }, 'Добавить')),
+              h('p', { class: 'muted hint' }, 'Вводите названия по одному: после «Добавить» окно остаётся открытым.'),
+            )
+          : null,
         errorBox,
         h(
           'div',
           { class: 'actions wrap' },
-          category && category.parentId === null
-            ? h(
-                'button',
-                {
-                  class: 'button',
-                  type: 'button',
-                  onClick: () => {
-                    handle.close();
-                    openCategoryForm(ctx, { kind: category.kind, asSub: true, parentId: category.id });
-                  },
-                },
-                'Добавить подкатегорию',
-              )
-            : null,
           category
             ? h(
                 'button',
@@ -222,27 +318,13 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub
                     ledger.updateCategory(category.id, { archived: !category.archived });
                     handle.close();
                     ctx.rerender();
+                    onDone?.(category);
                   },
                 },
                 category.archived ? 'Вернуть из архива' : 'В архив',
               )
             : null,
-          category && !used && !hasChildren
-            ? h(
-                'button',
-                {
-                  class: 'button danger',
-                  type: 'button',
-                  onClick: async () => {
-                    if (!(await confirmDialog({ title: 'Удалить категорию?', text: ledger.categoryPath(category.id), okLabel: 'Удалить', danger: true }))) return;
-                    ledger.deleteCategory(category.id);
-                    handle.close();
-                    ctx.rerender();
-                  },
-                },
-                'Удалить',
-              )
-            : null,
+          deleteButton,
           h('button', { class: 'button primary', type: 'submit' }, 'Сохранить'),
         ),
       );
@@ -426,7 +508,7 @@ export function settingsScreen(ctx) {
       list: accounts.length === 0
         ? h('p', { class: 'muted' }, 'Счетов пока нет.')
         : accounts.map((account) =>
-            row(account.name + (account.archived ? ' · архив' : ''), formatMoney(account.balance, account.currency), () => openAccountForm(ctx, { account }), account.archived ? ' archived' : ''),
+            row(account.name + (account.primary ? ' · основной' : '') + (account.archived ? ' · архив' : ''), formatMoney(account.balance, account.currency), () => openAccountForm(ctx, { account }), account.archived ? ' archived' : ''),
           ),
       footer: [h('button', { class: 'button wide', type: 'button', onClick: () => openAccountForm(ctx) }, 'Добавить счёт')],
     });

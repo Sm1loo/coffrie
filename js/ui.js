@@ -134,28 +134,30 @@ export function pick({ title, options, selected, searchable = options.length > 7
       onClose: () => finish(undefined),
       build(sheet) {
         const list = h('div', { class: 'pick-list' });
+        const createHost = h('div', { class: 'pick-create' });
         const draw = (query) => {
           const needle = query.trim().toLowerCase();
           const searching = needle !== '';
           const rows = options.filter((option) => !(searching && option.disabled) && (!searching || (option.fullLabel ?? option.label).toLowerCase().includes(needle)));
           const typed = query.trim();
-          const createRows = create.map((item) =>
-            h(
-              'button',
-              {
-                class: 'pick-row create',
-                type: 'button',
-                onClick: () => {
-                  finish({ create: item.key, name: typed });
-                  sheet.close();
+          createHost.replaceChildren(
+            ...(typed ? [h('span', { class: 'pick-create-text' }, `Создать «${typed}»:`)] : []),
+            ...create.map((item) =>
+              h(
+                'button',
+                {
+                  class: 'pill',
+                  type: 'button',
+                  onClick: () => {
+                    finish({ create: item.key, name: typed });
+                    sheet.close();
+                  },
                 },
-              },
-              icon('plus', 18),
-              h('span', { class: 'pick-label' }, typed ? item.typed(typed) : item.label),
+                typed ? item.typedLabel : `+ ${item.label}`,
+              ),
             ),
           );
           list.replaceChildren(
-            ...createRows,
             ...(rows.length === 0
               ? create.length > 0
                 ? []
@@ -184,7 +186,7 @@ export function pick({ title, options, selected, searchable = options.length > 7
         const search = searchable
           ? h('label', { class: 'search' }, icon('search', 18), h('input', { type: 'search', placeholder: 'Поиск', autocomplete: 'off', onInput: (event) => draw(event.target.value) }))
           : null;
-        return h('div', { class: 'pick' }, search, list);
+        return h('div', { class: 'pick' }, search, create.length > 0 ? createHost : null, list);
       },
     });
   });

@@ -1,4 +1,4 @@
-const VERSION = 'coffrie-9';
+const VERSION = 'coffrie-10';
 const FILES = [
   './',
   'index.html',
