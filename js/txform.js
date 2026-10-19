@@ -1,8 +1,9 @@
 import { today } from './dates.js';
 import { formatMoney, formatPlain, parseMoney } from './money.js';
 import { getMeta, setMeta } from './storage.js';
-import { askName, confirmDialog, fieldButton, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
-import { openAccountForm } from './settings.js';
+import { categoryOptions } from './catpick.js';
+import { confirmDialog, fieldButton, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
+import { openAccountForm, openCategoryForm } from './settings.js';
 import { parseSms } from './sms.js';
 
 const KINDS = [
@@ -75,13 +76,6 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
       .filter((account) => (!account.archived || account.id === form.accountId || account.id === form.toAccountId) && account.id !== exceptId)
       .map((account) => ({ value: account.id, label: account.name, hint: formatMoney(account.balance, account.currency) }));
 
-  const categoryOptions = () => [
-    { value: null, label: 'Без категории' },
-    ...ledger.state.categories
-      .filter((category) => category.kind === form.kind && (!category.archived || category.id === form.categoryId))
-      .map((category) => ({ value: category.id, label: category.name })),
-  ];
-
   const sheet = openSheet({
     title: tx ? 'Изменить операцию' : 'Новая операция',
     build(handle) {
@@ -100,24 +94,20 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
         handle.render();
       };
 
-      const createCategory = async (typedName) => {
-        const name = typedName || (await askName({ title: form.kind === 'income' ? 'Новая категория доходов' : 'Новая категория расходов', placeholder: 'Например, Спорт' }));
-        if (!name) return;
-        const existing = ledger.state.categories.find((item) => item.kind === form.kind && item.name.toLowerCase() === name.toLowerCase());
-        if (existing) {
-          form.categoryId = existing.id;
-          handle.render();
-          toast(`Категория «${existing.name}» уже есть, выбрана она`);
-          return;
-        }
-        try {
-          form.categoryId = ledger.addCategory({ name, kind: form.kind }).id;
-        } catch (error) {
-          fail(messageFor(error));
-          return;
-        }
-        handle.render();
-        toast(`Категория «${name}» создана`);
+      const createCategory = (result) => {
+        const selectedCategory = ledger.category(form.categoryId);
+        const parentId = selectedCategory ? (selectedCategory.parentId ?? selectedCategory.id) : null;
+        openCategoryForm(ctx, {
+          kind: form.kind,
+          asSub: result.create === 'sub',
+          parentId: result.create === 'sub' ? parentId : null,
+          name: result.name,
+          onCreated: (created) => {
+            form.categoryId = created.id;
+            handle.render();
+            toast(`Выбрано: ${ledger.categoryPath(created.id)}`);
+          },
+        });
       };
 
       const pasteSms = async () => {
@@ -215,10 +205,19 @@ export function openTxForm(ctx, { tx = null, preset = {} } = {}) {
         ),
         form.kind === 'transfer'
           ? fieldButton('Куда', target?.name ?? 'Выберите', () => chooseAccount('toAccountId', 'Куда', form.accountId))
-          : fieldButton('Категория', ledger.category(form.categoryId)?.name ?? 'Без категории', async () => {
-              const value = await pick({ title: 'Категория', options: categoryOptions(), selected: form.categoryId, searchable: true, create: 'Новая категория' });
+          : fieldButton('Категория', ledger.categoryPath(form.categoryId) ?? 'Без категории', async () => {
+              const value = await pick({
+                title: 'Категория',
+                options: categoryOptions(ledger, form.kind, { selected: form.categoryId, noneLabel: 'Без категории' }),
+                selected: form.categoryId,
+                searchable: true,
+                create: [
+                  { key: 'category', label: 'Новая категория', typed: (name) => `Создать категорию «${name}»` },
+                  { key: 'sub', label: 'Новая подкатегория', typed: (name) => `Создать подкатегорию «${name}»` },
+                ],
+              });
               if (value === undefined) return;
-              if (value !== null && typeof value === 'object') return createCategory(value.name);
+              if (value !== null && typeof value === 'object') return createCategory(value);
               form.categoryId = value;
               handle.render();
             }),

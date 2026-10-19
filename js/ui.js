@@ -14,6 +14,7 @@ const ICONS = {
   check: '<path d="m5 12 5 5 9-10"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
 };
@@ -64,6 +65,10 @@ const MESSAGES = {
   invalid_backup: 'Файл не похож на копию Coffrie или повреждён',
   invalid_month: 'Некорректный месяц',
   not_found: 'Запись не найдена',
+  parent_not_found: 'Выберите основную категорию',
+  too_deep: 'Подкатегория может быть только одного уровня: выберите основную категорию',
+  invalid_parent: 'Категория не может быть вложена сама в себя',
+  category_has_children: 'У категории есть подкатегории: сначала удалите или перенесите их',
 };
 
 export function messageFor(error) {
@@ -116,7 +121,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && sheets.length > 0) sheets[sheets.length - 1].close();
 });
 
-export function pick({ title, options, selected, searchable = options.length > 7, create = null }) {
+export function pick({ title, options, selected, searchable = options.length > 7, create = [] }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (value) => {
@@ -131,44 +136,47 @@ export function pick({ title, options, selected, searchable = options.length > 7
         const list = h('div', { class: 'pick-list' });
         const draw = (query) => {
           const needle = query.trim().toLowerCase();
-          const rows = options.filter((option) => !needle || option.label.toLowerCase().includes(needle));
+          const searching = needle !== '';
+          const rows = options.filter((option) => !(searching && option.disabled) && (!searching || (option.fullLabel ?? option.label).toLowerCase().includes(needle)));
           const typed = query.trim();
-          const createRow = create
-            ? h(
-                'button',
-                {
-                  class: 'pick-row create',
-                  type: 'button',
-                  onClick: () => {
-                    finish({ create: true, name: typed });
-                    sheet.close();
-                  },
+          const createRows = create.map((item) =>
+            h(
+              'button',
+              {
+                class: 'pick-row create',
+                type: 'button',
+                onClick: () => {
+                  finish({ create: item.key, name: typed });
+                  sheet.close();
                 },
-                icon('plus', 18),
-                h('span', { class: 'pick-label' }, typed ? `Создать «${typed}»` : create),
-              )
-            : null;
+              },
+              icon('plus', 18),
+              h('span', { class: 'pick-label' }, typed ? item.typed(typed) : item.label),
+            ),
+          );
           list.replaceChildren(
-            ...(createRow ? [createRow] : []),
+            ...createRows,
             ...(rows.length === 0
-              ? create
+              ? create.length > 0
                 ? []
                 : [h('div', { class: 'empty' }, 'Ничего не найдено')]
               : rows.map((option) =>
-                  h(
-                    'button',
-                    {
-                      class: `pick-row${option.value === selected ? ' selected' : ''}`,
-                      type: 'button',
-                      onClick: () => {
-                        finish(option.value);
-                        sheet.close();
-                      },
-                    },
-                    h('span', { class: 'pick-label' }, option.label),
-                    option.hint ? h('span', { class: 'pick-hint' }, option.hint) : null,
-                    option.value === selected ? icon('check', 18) : null,
-                  ),
+                  option.disabled
+                    ? h('div', { class: 'pick-row heading' }, h('span', { class: 'pick-label' }, option.label))
+                    : h(
+                        'button',
+                        {
+                          class: `pick-row${option.value === selected ? ' selected' : ''}${option.level === 1 && !searching ? ' level1' : ''}`,
+                          type: 'button',
+                          onClick: () => {
+                            finish(option.value);
+                            sheet.close();
+                          },
+                        },
+                        h('span', { class: 'pick-label' }, searching ? (option.fullLabel ?? option.label) : option.label),
+                        option.hint ? h('span', { class: 'pick-hint' }, option.hint) : null,
+                        option.value === selected ? icon('check', 18) : null,
+                      ),
                 )),
           );
         };
@@ -177,41 +185,6 @@ export function pick({ title, options, selected, searchable = options.length > 7
           ? h('label', { class: 'search' }, icon('search', 18), h('input', { type: 'search', placeholder: 'Поиск', autocomplete: 'off', onInput: (event) => draw(event.target.value) }))
           : null;
         return h('div', { class: 'pick' }, search, list);
-      },
-    });
-  });
-}
-
-export function askName({ title, placeholder = '', okLabel = 'Создать' }) {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (value) => {
-      if (done) return;
-      done = true;
-      resolve(value);
-    };
-    openSheet({
-      title,
-      onClose: () => finish(undefined),
-      build(sheet) {
-        const input = h('input', { type: 'text', maxlength: '100', autocomplete: 'off', placeholder });
-        setTimeout(() => input.focus(), 50);
-        return h(
-          'form',
-          {
-            class: 'tx-form',
-            novalidate: true,
-            onSubmit: (event) => {
-              event.preventDefault();
-              const text = input.value.trim();
-              if (!text) return;
-              finish(text);
-              sheet.close();
-            },
-          },
-          h('label', { class: 'input-row' }, h('span', { class: 'field-label' }, 'Название'), input),
-          h('div', { class: 'actions' }, h('button', { class: 'button', type: 'button', onClick: () => sheet.close() }, 'Отмена'), h('button', { class: 'button primary', type: 'submit' }, okLabel)),
-        );
       },
     });
   });

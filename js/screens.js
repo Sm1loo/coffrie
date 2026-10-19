@@ -1,5 +1,6 @@
 import { addMonths, formatDay, formatMonth, monthRange } from './dates.js';
 import { formatMoney, formatPlain, parseMoney } from './money.js';
+import { categoryOptions } from './catpick.js';
 import { getMeta } from './storage.js';
 import { openTxForm } from './txform.js';
 import { confirmDialog, emptyState, expandButton, fillCard, h, messageFor, monthSwitcher, openSheet, pick, segmented, toast } from './ui.js';
@@ -28,7 +29,7 @@ export function txRow(ctx, tx, { before } = {}) {
     title = 'Перевод';
     sub = `${account.name} → ${ledger.account(tx.toAccountId).name}`;
   } else {
-    title = ledger.category(tx.categoryId)?.name ?? 'Без категории';
+    title = ledger.categoryPath(tx.categoryId) ?? 'Без категории';
     sub = account.name;
   }
   return h(
@@ -309,7 +310,7 @@ function openBudgetForm(ctx, { budget = null, categoryId = null }) {
   const currency = budget?.currency ?? primaryCurrency(ledger);
   const form = { amount: budget ? formatPlain(budget.amount) : '' };
   openSheet({
-    title: category.name,
+    title: ledger.categoryPath(category.id),
     build(handle) {
       const errorBox = h('div', { class: 'form-error', role: 'alert' });
       const save = () => {
@@ -374,7 +375,7 @@ export function budgetsScreen(ctx) {
   const { ledger, ui } = ctx;
   const items = ledger.budgetsFor(ui.month);
   const taken = new Set(items.map((item) => item.categoryId));
-  const free = ledger.state.categories.filter((category) => category.kind === 'expense' && !category.archived && !taken.has(category.id));
+  const freeOptions = categoryOptions(ledger, 'expense', { exclude: taken });
   const previous = ledger.budgetsFor(addMonths(ui.month, -1));
 
   const rows = items.map((item) => {
@@ -387,7 +388,7 @@ export function budgetsScreen(ctx) {
       h(
         'span',
         { class: 'row-main' },
-        h('span', { class: 'row-title' }, category.name),
+        h('span', { class: 'row-title' }, ledger.categoryPath(category.id)),
         bar(percent, percent >= 100 ? 'expense' : percent >= 80 ? 'warn' : ''),
         h('span', { class: 'row-sub' }, `${formatMoney(item.spent, item.currency)} из ${formatMoney(item.amount, item.currency)}`),
       ),
@@ -402,14 +403,14 @@ export function budgetsScreen(ctx) {
     fillCard('Бюджеты по категориям', {
       list: items.length === 0 ? emptyState('На этот месяц лимитов нет.') : [...rows, h('p', { class: 'muted' }, 'Справа остаток лимита.')],
       footer: [
-      free.length > 0
+      freeOptions.some((option) => !option.disabled)
         ? h(
             'button',
             {
               class: 'button wide primary',
               type: 'button',
               onClick: async () => {
-                const value = await pick({ title: 'Категория', options: free.map((category) => ({ value: category.id, label: category.name })) });
+                const value = await pick({ title: 'Категория', options: freeOptions, searchable: true });
                 if (value !== undefined) openBudgetForm(ctx, { categoryId: value });
               },
             },

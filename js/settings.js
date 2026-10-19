@@ -2,7 +2,7 @@ import { createDefaultState } from './ledger.js';
 import { today } from './dates.js';
 import { formatMoney, formatPlain, parseSignedMoney } from './money.js';
 import { getMeta, setMeta } from './storage.js';
-import { confirmDialog, fillCard, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
+import { confirmDialog, fieldButton, fillCard, h, messageFor, openSheet, pick, segmented, toast } from './ui.js';
 import { openFromSms } from './txform.js';
 
 const CURRENCIES = [
@@ -131,18 +131,35 @@ export function openAccountForm(ctx, { account = null, onDone } = {}) {
   });
 }
 
-export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}) {
+export function openCategoryForm(ctx, { category = null, kind = 'expense', asSub = false, parentId = null, name = '', onCreated = null } = {}) {
   const { ledger } = ctx;
-  const form = { name: category?.name ?? '' };
+  const kindOf = category ? category.kind : kind;
+  const form = { name: category ? category.name : name, parentId: category ? category.parentId : parentId };
+  const hasChildren = category ? ledger.childrenOf(category.id).length > 0 : false;
+  const showParent = category ? !hasChildren : asSub;
+
+  const parentOptions = () => [
+    ...(asSub && !category ? [] : [{ value: null, label: 'Нет (основная категория)' }]),
+    ...ledger.categoryTree(kindOf, { includeArchived: true })
+      .filter(({ category: root }) => root.id !== category?.id && (!root.archived || root.id === form.parentId))
+      .map(({ category: root }) => ({ value: root.id, label: root.name })),
+  ];
+
   openSheet({
-    title: category ? 'Категория' : kind === 'income' ? 'Новая категория доходов' : 'Новая категория расходов',
+    title: category ? 'Категория' : asSub ? 'Новая подкатегория' : kindOf === 'income' ? 'Новая категория доходов' : 'Новая категория расходов',
     build(handle) {
       const errorBox = h('div', { class: 'form-error', role: 'alert' });
       const used = category ? ledger.state.transactions.some((tx) => tx.categoryId === category.id) : false;
+
       const save = () => {
+        if (!category && asSub && form.parentId === null) {
+          errorBox.textContent = 'Выберите основную категорию';
+          return;
+        }
+        let saved;
         try {
-          if (category) ledger.updateCategory(category.id, { name: form.name });
-          else ledger.addCategory({ name: form.name, kind });
+          if (category) saved = ledger.updateCategory(category.id, { name: form.name, ...(showParent ? { parentId: form.parentId } : {}) });
+          else saved = ledger.addCategory({ name: form.name, kind: kindOf, parentId: asSub ? form.parentId : null });
         } catch (error) {
           errorBox.textContent = messageFor(error);
           return;
@@ -150,7 +167,9 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}
         handle.close();
         toast('Сохранено');
         ctx.rerender();
+        if (!category) onCreated?.(saved);
       };
+
       return h(
         'form',
         {
@@ -161,6 +180,14 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}
             save();
           },
         },
+        showParent
+          ? fieldButton(asSub && !category ? 'Основная категория' : 'Входит в', ledger.category(form.parentId)?.name ?? 'Нет (основная категория)', async () => {
+              const value = await pick({ title: 'Основная категория', options: parentOptions(), selected: form.parentId });
+              if (value === undefined) return;
+              form.parentId = value;
+              handle.render();
+            })
+          : null,
         h(
           'label',
           { class: 'input-row' },
@@ -171,6 +198,20 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}
         h(
           'div',
           { class: 'actions wrap' },
+          category && category.parentId === null
+            ? h(
+                'button',
+                {
+                  class: 'button',
+                  type: 'button',
+                  onClick: () => {
+                    handle.close();
+                    openCategoryForm(ctx, { kind: category.kind, asSub: true, parentId: category.id });
+                  },
+                },
+                'Добавить подкатегорию',
+              )
+            : null,
           category
             ? h(
                 'button',
@@ -186,14 +227,14 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}
                 category.archived ? 'Вернуть из архива' : 'В архив',
               )
             : null,
-          category && !used
+          category && !used && !hasChildren
             ? h(
                 'button',
                 {
                   class: 'button danger',
                   type: 'button',
                   onClick: async () => {
-                    if (!(await confirmDialog({ title: 'Удалить категорию?', text: category.name, okLabel: 'Удалить', danger: true }))) return;
+                    if (!(await confirmDialog({ title: 'Удалить категорию?', text: ledger.categoryPath(category.id), okLabel: 'Удалить', danger: true }))) return;
                     ledger.deleteCategory(category.id);
                     handle.close();
                     ctx.rerender();
@@ -208,7 +249,6 @@ export function openCategoryForm(ctx, { category = null, kind = 'expense' } = {}
     },
   });
 }
-
 async function exportBackup(ctx) {
   const json = JSON.stringify(ctx.ledger.exportData(), null, 2);
   const name = `coffrie-${today()}.json`;
@@ -305,7 +345,7 @@ function row(label, hint, onClick, extra = '') {
 export function settingsScreen(ctx) {
   const { ledger, ui } = ctx;
   const accounts = ledger.balances();
-  const categories = ledger.state.categories.filter((category) => category.kind === ui.settingsKind);
+  const categoryTree = ledger.categoryTree(ui.settingsKind, { includeArchived: true });
   const lastBackup = getMeta('lastBackup');
   const smsBox = h('textarea', { class: 'sms-box', rows: '3', placeholder: 'Вставьте текст SMS от банка', 'aria-label': 'Текст SMS' });
   const fileInput = h('input', {
@@ -404,8 +444,23 @@ export function settingsScreen(ctx) {
         },
       ),
       fillCard('Категории', {
-        list: categories.map((category) => row(category.name + (category.archived ? ' · архив' : ''), '', () => openCategoryForm(ctx, { category }), category.archived ? ' archived' : '')),
-        footer: [h('button', { class: 'button wide', type: 'button', onClick: () => openCategoryForm(ctx, { kind: ui.settingsKind }) }, 'Добавить категорию')],
+        list: categoryTree.flatMap(({ category, children }) => [
+          row(category.name + (category.archived ? ' · архив' : ''), children.length > 0 ? `подкатегорий: ${children.length}` : '', () => openCategoryForm(ctx, { category }), category.archived ? ' archived' : ''),
+          ...children.map((child) => row(child.name + (child.archived ? ' · архив' : ''), '', () => openCategoryForm(ctx, { category: child }), ` child${child.archived ? ' archived' : ''}`)),
+        ]),
+        footer: [
+          h('button', { class: 'button wide', type: 'button', onClick: () => openCategoryForm(ctx, { kind: ui.settingsKind }) }, 'Добавить категорию'),
+          h(
+            'button',
+            {
+              class: 'button wide',
+              type: 'button',
+              disabled: categoryTree.length === 0,
+              onClick: () => openCategoryForm(ctx, { kind: ui.settingsKind, asSub: true }),
+            },
+            'Добавить подкатегорию',
+          ),
+        ],
       }),
     ];
   } else {

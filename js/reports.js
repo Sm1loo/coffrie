@@ -2,7 +2,8 @@ import { addMonths, currentMonth, formatDay, formatMonth, formatMonthShort, mont
 import { formatMoney } from './money.js';
 import { PERIODS, boundsFor, stepMonths } from './periods.js';
 import { bar, card, primaryCurrency, stat, txRow } from './screens.js';
-import { emptyState, fieldButton, h, monthSwitcher, openSheet, pick, segmented } from './ui.js';
+import { groupByRoot } from './tree.js';
+import { emptyState, fieldButton, h, icon, monthSwitcher, openSheet, pick, segmented } from './ui.js';
 
 const MINUS = '−';
 
@@ -150,20 +151,55 @@ export function reportsScreen(ctx) {
   const categoryBlock = (kind, title) => {
     const rows = summary.byCategory.filter((entry) => entry.kind === kind && entry.currency === currency);
     if (rows.length === 0) return null;
-    const sum = rows.reduce((acc, entry) => acc + entry.total, 0);
+    const groups = groupByRoot(rows);
+    const sum = groups.reduce((acc, group) => acc + group.total, 0);
+    const percent = (value) => `${Math.round((value / sum) * 100)}%`;
+
+    const line = (name, value, onClick, { child = false } = {}) =>
+      h(
+        'button',
+        { class: `row report-row${child ? ' child' : ''}`, type: 'button', onClick },
+        h('span', { class: 'row-main' }, h('span', { class: 'report-head' }, h('span', {}, name), h('span', { class: 'amount' }, formatMoney(value, currency))), bar((value / sum) * 100, kind), h('span', { class: 'row-sub' }, percent(value))),
+      );
+
     return card(
       title,
-      rows.map((entry) =>
-        h(
+      groups.map((group) => {
+        const name = group.name ?? 'Без категории';
+        const hasChildren = group.children.length > 0;
+        const key = `${kind}:${group.rootId}`;
+        const expanded = hasChildren && ui.reportOpen.has(key);
+        const head = line(name, group.total, () =>
+          open(name, group.rootId === null ? { kind, noCategory: true } : hasChildren ? { kind, categoryRoot: group.rootId } : { kind, categoryId: group.rootId }),
+        );
+        if (!hasChildren) return head;
+        const toggle = h(
           'button',
           {
-            class: 'row report-row',
+            class: 'icon-button small group-toggle',
             type: 'button',
-            onClick: () => open(entry.name ?? 'Без категории', { kind, categoryId: entry.categoryId ?? undefined, noCategory: entry.categoryId === null }),
+            'aria-label': expanded ? 'Свернуть подкатегории' : 'Показать подкатегории',
+            'aria-expanded': String(expanded),
+            onClick: () => {
+              if (expanded) ui.reportOpen.delete(key);
+              else ui.reportOpen.add(key);
+              ctx.rerender();
+            },
           },
-          h('span', { class: 'row-main' }, h('span', { class: 'report-head' }, h('span', {}, entry.name ?? 'Без категории'), h('span', { class: 'amount' }, formatMoney(entry.total, currency))), bar((entry.total / sum) * 100, kind), h('span', { class: 'row-sub' }, `${Math.round((entry.total / sum) * 100)}%`)),
-        ),
-      ),
+          icon(expanded ? 'up' : 'down', 18),
+        );
+        return h(
+          'div',
+          { class: 'report-group' },
+          h('div', { class: 'report-group-head' }, head, toggle),
+          expanded
+            ? [
+                ...group.children.map((child) => line(child.name, child.total, () => open(`${name} › ${child.name}`, { kind, categoryId: child.categoryId }), { child: true })),
+                group.own > 0 ? line('Без подкатегории', group.own, () => open(name, { kind, categoryId: group.rootId }), { child: true }) : null,
+              ]
+            : null,
+        );
+      }),
     );
   };
 

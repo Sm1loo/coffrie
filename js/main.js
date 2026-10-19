@@ -181,6 +181,7 @@ function start(state, initialRev, persist) {
     settingsTab: 'accounts',
     reportPeriod: 'month',
     reportCurrency: null,
+    reportOpen: new Set(),
     reportCustomSet: false,
     reportCustom: { mode: 'dates', from: monthRange(currentMonth())[0], to: monthRange(currentMonth())[1], fromMonth: currentMonth(), toMonth: currentMonth() },
   };

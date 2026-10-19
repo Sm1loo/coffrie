@@ -12,9 +12,15 @@ export const DEFAULT_CATEGORIES = {
   income: ['Зарплата', 'Подработка', 'Проценты', 'Подарки', 'Переводы от людей', 'Прочее'],
 };
 
-export const CURRENT_VERSION = 1;
+export const CURRENT_VERSION = 2;
 
-const MIGRATIONS = {};
+const MIGRATIONS = {
+  1: (data) => ({
+    ...data,
+    version: 2,
+    categories: Array.isArray(data.categories) ? data.categories.map((category) => ({ ...category, parentId: null })) : data.categories,
+  }),
+};
 
 export function migrate(data) {
   if (!data || typeof data !== 'object' || !Number.isInteger(data.version)) return data;
@@ -131,13 +137,52 @@ export class Ledger {
     this.#commit();
   }
 
+  childrenOf(id) {
+    return this.state.categories.filter((item) => item.parentId === id);
+  }
+
+  categoryPath(id) {
+    const category = id === null || id === undefined ? null : this.category(id);
+    if (!category) return null;
+    const parent = category.parentId === null ? null : this.category(category.parentId);
+    return parent ? `${parent.name} › ${category.name}` : category.name;
+  }
+
+  categoryScope(id) {
+    return [id, ...this.childrenOf(id).map((item) => item.id)];
+  }
+
+  categoryTree(kind, { includeArchived = false } = {}) {
+    const byName = (a, b) => a.name.localeCompare(b.name, 'ru');
+    return this.state.categories
+      .filter((item) => item.kind === kind && item.parentId === null && (includeArchived || !item.archived))
+      .sort(byName)
+      .map((category) => ({
+        category,
+        children: this.childrenOf(category.id)
+          .filter((child) => includeArchived || !child.archived)
+          .sort(byName),
+      }));
+  }
+
+  #checkParent(parentId, kind, selfId = null) {
+    if (parentId === null) return;
+    if (parentId === selfId) throw new LedgerError('invalid_parent');
+    const parent = this.category(parentId);
+    if (!parent) throw new LedgerError('parent_not_found');
+    if (parent.kind !== kind) throw new LedgerError('category_kind_mismatch');
+    if (parent.parentId !== null) throw new LedgerError('too_deep');
+  }
+
   addCategory(input) {
     const name = cleanTitle(input.name);
     if (input.kind !== 'income' && input.kind !== 'expense') throw new LedgerError('invalid_kind');
-    if (this.state.categories.some((item) => item.kind === input.kind && sameName(item.name, name))) {
+    const parentId = input.parentId ?? null;
+    this.#checkParent(parentId, input.kind);
+    if (this.state.categories.some((item) => item.kind === input.kind && item.parentId === parentId && sameName(item.name, name))) {
       throw new LedgerError('duplicate');
     }
-    const category = { id: this.#nextId(), name, kind: input.kind, archived: false };
+    const category = { id: input.id ?? this.#nextId(), name, kind: input.kind, parentId, archived: false };
     this.state.categories.push(category);
     this.#commit();
     return category;
@@ -149,16 +194,25 @@ export class Ledger {
     const next = { ...category };
     if (patch.name !== undefined) next.name = cleanTitle(patch.name);
     if (patch.archived !== undefined) next.archived = Boolean(patch.archived);
-    if (this.state.categories.some((item) => item.id !== id && item.kind === next.kind && sameName(item.name, next.name))) {
+    if (patch.parentId !== undefined) {
+      next.parentId = patch.parentId;
+      this.#checkParent(next.parentId, category.kind, id);
+      if (next.parentId !== null && this.childrenOf(id).length > 0) throw new LedgerError('category_has_children');
+    }
+    if (this.state.categories.some((item) => item.id !== id && item.kind === next.kind && item.parentId === next.parentId && sameName(item.name, next.name))) {
       throw new LedgerError('duplicate');
     }
     Object.assign(category, next);
+    if (patch.archived !== undefined) {
+      for (const child of this.childrenOf(id)) child.archived = next.archived;
+    }
     this.#commit();
     return category;
   }
 
   deleteCategory(id) {
     if (!this.category(id)) throw new LedgerError('not_found');
+    if (this.childrenOf(id).length > 0) throw new LedgerError('category_has_children');
     if (this.state.transactions.some((tx) => tx.categoryId === id)) throw new LedgerError('category_has_transactions');
     this.state.categories = this.state.categories.filter((item) => item.id !== id);
     this.state.budgets = this.state.budgets.filter((item) => item.categoryId !== id);
@@ -328,6 +382,7 @@ export class Ledger {
       .filter((tx) => !filter.to || tx.occurredOn <= filter.to)
       .filter((tx) => !filter.accountId || tx.accountId === filter.accountId || tx.toAccountId === filter.accountId)
       .filter((tx) => !filter.categoryId || tx.categoryId === filter.categoryId)
+      .filter((tx) => !filter.categoryRoot || this.categoryScope(filter.categoryRoot).includes(tx.categoryId))
       .filter((tx) => !filter.noCategory || (tx.categoryId === null && tx.kind !== 'transfer'))
       .filter((tx) => !filter.noTransfers || tx.kind !== 'transfer')
       .filter((tx) => !filter.currency || this.account(tx.accountId).currency === filter.currency)
@@ -354,9 +409,13 @@ export class Ledger {
       total[tx.kind] += tx.amount;
       totals.set(currency, total);
       const key = `${currency}|${tx.kind}|${tx.categoryId}`;
+      const category = tx.categoryId === null ? null : this.category(tx.categoryId);
+      const parent = category && category.parentId !== null ? this.category(category.parentId) : null;
       const entry = categories.get(key) ?? {
         categoryId: tx.categoryId,
-        name: tx.categoryId === null ? null : this.category(tx.categoryId).name,
+        name: category ? category.name : null,
+        parentId: parent ? parent.id : null,
+        parentName: parent ? parent.name : null,
         kind: tx.kind,
         currency,
         total: 0,
@@ -393,11 +452,12 @@ export class Ledger {
     return this.state.budgets
       .filter((budget) => budget.month === month)
       .map((budget) => {
+        const scope = this.categoryScope(budget.categoryId);
         const spent = this.state.transactions
           .filter(
             (tx) =>
               tx.kind === 'expense' &&
-              tx.categoryId === budget.categoryId &&
+              scope.includes(tx.categoryId) &&
               tx.occurredOn >= from &&
               tx.occurredOn <= to &&
               this.account(tx.accountId).currency === budget.currency,
@@ -443,10 +503,11 @@ export function validateState(raw) {
       const account = ledger.addAccount({ name: item.name, currency: item.currency, openingBalance: item.openingBalance });
       Object.assign(account, { id: item.id, archived: Boolean(item.archived) });
     }
-    for (const item of data.categories) {
+    const ordered = [...data.categories.filter((item) => item.parentId == null), ...data.categories.filter((item) => item.parentId != null)];
+    for (const item of ordered) {
       take(item.id);
-      const category = ledger.addCategory({ name: item.name, kind: item.kind });
-      Object.assign(category, { id: item.id, archived: Boolean(item.archived) });
+      const category = ledger.addCategory({ id: item.id, name: item.name, kind: item.kind, parentId: item.parentId ?? null });
+      category.archived = Boolean(item.archived);
     }
     for (const item of data.transactions) {
       take(item.id);

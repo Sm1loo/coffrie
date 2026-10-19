@@ -311,6 +311,26 @@ button {
   background: none;
 }
 
+.report-group-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.report-group-head .report-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.report-row.child {
+  padding-left: 28px;
+}
+
+.report-row.child .report-head {
+  font-weight: 500;
+  font-size: 15px;
+}
+
 .report-row .row-main {
   gap: 4px;
 }
@@ -389,6 +409,11 @@ button {
   font-weight: 560;
   max-width: 48%;
   text-align: right;
+}
+
+.row.child .row-title {
+  padding-left: 22px;
+  font-weight: 500;
 }
 
 .row.archived {
@@ -917,6 +942,16 @@ button {
 .pick-hint {
   color: var(--muted);
   font-size: 13px;
+}
+
+.pick-row.level1 {
+  padding-left: 34px;
+}
+
+.pick-row.heading {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .pick-row.create {
